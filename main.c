@@ -1,210 +1,142 @@
 #include <stdio.h>
-#include <string.h>
+#include <stdlib.h>
 #include <stdbool.h>
 
-/** Global Constants **/
-const char* TRACE = "trace";
-const char* SHOW_STATISTICS = "stats";
-const char* ALGORITHMS[9] = {"", "FCFS", "RR-", "SPN", "SRT"};
+#define MAX_PROCESSES 100
 
 typedef struct {
-    char name[10];
-    int arrivalTime;
-    int serviceTime;
+    int pid;
+    int arrival_time;
+    int service_time;
+    int remaining_time;
+    int finish_time;
+    int turn_around_time;
+    int waiting_time;
 } Process;
 
-Process processes[100];
-int process_count = 0;
-int last_instant = 100;
-char timeline[100][100];
-int finishTime[100];
-int turnAroundTime[100];
-double normTurn[100];
+int process_count;
 
-// Sort functions in C
-int sortByServiceTime(const void* a, const void* b) {
-    Process* pa = (Process*)a;
-    Process* pb = (Process*)b;
-    return pa->serviceTime - pb->serviceTime;
-}
-
-int sortByArrivalTime(const void* a, const void* b) {
-    Process* pa = (Process*)a;
-    Process* pb = (Process*)b;
-    return pa->arrivalTime - pb->arrivalTime;
-}
-
-void clear_timeline() {
-    for (int i = 0; i < last_instant; i++)
-        for (int j = 0; j < process_count; j++)
-            timeline[i][j] = ' ';
-}
-
-char* getProcessName(Process* a) {
-    return a->name;
-}
-
-int getArrivalTime(Process* a) {
-    return a->arrivalTime;
-}
-
-int getServiceTime(Process* a) {
-    return a->serviceTime;
-}
-
-double calculate_response_ratio(int wait_time, int service_time) {
-    return (wait_time + service_time) * 1.0 / service_time;
-}
-
-void fillInWaitTime() {
+void inputProcesses(Process processes[]) {
+    printf("Enter number of processes: ");
+    scanf("%d", &process_count);
     for (int i = 0; i < process_count; i++) {
-        int arrivalTime = getArrivalTime(&processes[i]);
-        for (int k = arrivalTime; k < finishTime[i]; k++) {
-            if (timeline[k][i] != '*')
-                timeline[k][i] = '.';
-        }
+        processes[i].pid = i + 1;
+        printf("Enter arrival time and service time for process %d: ", i + 1);
+        scanf("%d%d", &processes[i].arrival_time, &processes[i].service_time);
+        processes[i].remaining_time = processes[i].service_time;
     }
 }
 
-void firstComeFirstServe() {
-    int time = getArrivalTime(&processes[0]);
+void fcfs(Process processes[]) {
+    int time = 0;
     for (int i = 0; i < process_count; i++) {
-        int arrivalTime = getArrivalTime(&processes[i]);
-        int serviceTime = getServiceTime(&processes[i]);
-
-        finishTime[i] = time + serviceTime;
-        turnAroundTime[i] = finishTime[i] - arrivalTime;
-        normTurn[i] = turnAroundTime[i] * 1.0 / serviceTime;
-
-        for (int j = time; j < finishTime[i]; j++)
-            timeline[j][i] = '*';
-        for (int j = arrivalTime; j < time; j++)
-            timeline[j][i] = '.';
-        time += serviceTime;
+        if (time < processes[i].arrival_time) time = processes[i].arrival_time;
+        processes[i].finish_time = time + processes[i].service_time;
+        processes[i].turn_around_time = processes[i].finish_time - processes[i].arrival_time;
+        processes[i].waiting_time = processes[i].turn_around_time - processes[i].service_time;
+        time += processes[i].service_time;
     }
 }
 
-void roundRobin(int originalQuantum) {
-    int currentQuantum = originalQuantum;
-    int time = 0, j = 0;
-
-    while (j < process_count) {
-        int processIndex = j;
-        int arrivalTime = getArrivalTime(&processes[processIndex]);
-        int serviceTime = getServiceTime(&processes[processIndex]);
-
-        if (arrivalTime <= time) {
-            int remainingServiceTime = serviceTime - currentQuantum;
-
-            for (int t = time; t < time + currentQuantum && remainingServiceTime > 0; t++) {
-                timeline[t][processIndex] = '*';
+void sjf(Process processes[]) {
+    bool visited[MAX_PROCESSES] = {false};
+    int time = 0, completed = 0;
+    while (completed < process_count) {
+        int min_time = 1e9, min_index = -1;
+        for (int i = 0; i < process_count; i++) {
+            if (!visited[i] && processes[i].arrival_time <= time && processes[i].service_time < min_time) {
+                min_time = processes[i].service_time;
+                min_index = i;
             }
-            time += currentQuantum;
+        }
+        if (min_index != -1) {
+            visited[min_index] = true;
+            time += processes[min_index].service_time;
+            processes[min_index].finish_time = time;
+            processes[min_index].turn_around_time = processes[min_index].finish_time - processes[min_index].arrival_time;
+            processes[min_index].waiting_time = processes[min_index].turn_around_time - processes[min_index].service_time;
+            completed++;
+        } else time++;
+    }
+}
 
-            if (remainingServiceTime > 0) {
-                currentQuantum = remainingServiceTime;
-            } else {
-                finishTime[processIndex] = time;
-                turnAroundTime[processIndex] = finishTime[processIndex] - arrivalTime;
-                normTurn[processIndex] = turnAroundTime[processIndex] * 1.0 / serviceTime;
-                j++;
+void srt(Process processes[]) {
+    int time = 0, completed = 0;
+    while (completed < process_count) {
+        int min_remaining_time = 1e9, min_index = -1;
+        for (int i = 0; i < process_count; i++) {
+            if (processes[i].arrival_time <= time && processes[i].remaining_time > 0 && processes[i].remaining_time < min_remaining_time) {
+                min_remaining_time = processes[i].remaining_time;
+                min_index = i;
+            }
+        }
+        if (min_index != -1) {
+            processes[min_index].remaining_time--;
+            time++;
+            if (processes[min_index].remaining_time == 0) {
+                processes[min_index].finish_time = time;
+                processes[min_index].turn_around_time = processes[min_index].finish_time - processes[min_index].arrival_time;
+                processes[min_index].waiting_time = processes[min_index].turn_around_time - processes[min_index].service_time;
+                completed++;
+            }
+        } else time++;
+    }
+}
+
+void round_robin(Process processes[], int quantum) {
+    int time = 0, completed = 0;
+    int remaining[MAX_PROCESSES];
+    for (int i = 0; i < process_count; i++) remaining[i] = processes[i].service_time;
+    while (completed < process_count) {
+        for (int i = 0; i < process_count; i++) {
+            if (processes[i].arrival_time <= time && remaining[i] > 0) {
+                int execute_time = (remaining[i] < quantum) ? remaining[i] : quantum;
+                time += execute_time;
+                remaining[i] -= execute_time;
+                if (remaining[i] == 0) {
+                    processes[i].finish_time = time;
+                    processes[i].turn_around_time = processes[i].finish_time - processes[i].arrival_time;
+                    processes[i].waiting_time = processes[i].turn_around_time - processes[i].service_time;
+                    completed++;
+                }
             }
         }
     }
-
-    fillInWaitTime();
 }
 
-void printAlgorithm(int algorithm_index) {
-    int algorithm_id = ALGORITHMS[algorithm_index][0] - '0';
-    printf("%s\n", ALGORITHMS[algorithm_id]);
-}
-
-void printProcesses() {
-    printf("Process    ");
-    for (int i = 0; i < process_count; i++)
-        printf("|  %s  ", getProcessName(&processes[i]));
-    printf("|\n");
-}
-
-void printArrivalTime() {
-    printf("Arrival    ");
-    for (int i = 0; i < process_count; i++)
-        printf("|%3d  ", getArrivalTime(&processes[i]));
-    printf("|\n");
-}
-
-void printServiceTime() {
-    printf("Service    |");
-    for (int i = 0; i < process_count; i++)
-        printf("%3d  |", getServiceTime(&processes[i]));
-    printf(" Mean|\n");
-}
-
-void printFinishTime() {
-    printf("Finish     ");
-    for (int i = 0; i < process_count; i++)
-        printf("|%3d  ", finishTime[i]);
-    printf("|-----|\n");
-}
-
-void printTurnAroundTime() {
-    printf("Turnaround |");
-    int sum = 0;
+void displayResults(Process processes[]) {
+    printf("PID\tArrival\tService\tFinish\tTurnAround\tWaiting\n");
     for (int i = 0; i < process_count; i++) {
-        printf("%3d  |", turnAroundTime[i]);
-        sum += turnAroundTime[i];
-    }
-    printf(" %2.2f|\n", (1.0 * sum) / process_count);
-}
-
-void printNormTurn() {
-    printf("NormTurn   |");
-    float sum = 0;
-    for (int i = 0; i < process_count; i++) {
-        printf("%2.2f|", normTurn[i]);
-        sum += normTurn[i];
-    }
-    printf(" %2.2f|\n", sum / process_count);
-}
-
-void printStats(int algorithm_index) {
-    printAlgorithm(algorithm_index);
-    printProcesses();
-    printArrivalTime();
-    printServiceTime();
-    printFinishTime();
-    printTurnAroundTime();
-    printNormTurn();
-}
-
-void execute_algorithm(char algorithm_id, int quantum, const char* operation) {
-    switch (algorithm_id) {
-        case '1':
-            if (strcmp(operation, TRACE) == 0) printf("FCFS  ");
-            firstComeFirstServe();
-            break;
-        case '2':
-            if (strcmp(operation, TRACE) == 0) printf("RR-%d  ", quantum);
-            roundRobin(quantum);
-            break;
-        // Add other algorithms here
-        default:
-            break;
+        printf("%d\t%d\t%d\t%d\t%d\t\t%d\n", processes[i].pid, processes[i].arrival_time, processes[i].service_time,
+               processes[i].finish_time, processes[i].turn_around_time, processes[i].waiting_time);
     }
 }
 
 int main() {
-    // Parse input to populate processes array, process_count etc.
-    // Here would go code for parsing input and populating processes
-
-    for (int idx = 0; idx < 9; idx++) {
-        clear_timeline();
-        execute_algorithm(ALGORITHMS[idx][0], 4, TRACE);  // Example with quantum 4
-        if (strcmp(TRACE, "trace") == 0) {
-            printStats(idx);
-        }
+    Process processes[MAX_PROCESSES];
+    inputProcesses(processes);
+    printf("Select scheduling algorithm:\n1. FCFS\n2. SJF\n3. SRT\n4. Round Robin\n");
+    int choice, quantum;
+    scanf("%d", &choice);
+    switch (choice) {
+        case 1:
+            fcfs(processes);
+            break;
+        case 2:
+            sjf(processes);
+            break;
+        case 3:
+            srt(processes);
+            break;
+        case 4:
+            printf("Enter time quantum: ");
+            scanf("%d", &quantum);
+            round_robin(processes, quantum);
+            break;
+        default:
+            printf("Invalid choice\n");
+            return 0;
     }
-
+    displayResults(processes);
     return 0;
 }
